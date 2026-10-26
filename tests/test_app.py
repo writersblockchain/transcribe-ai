@@ -1,4 +1,7 @@
 import os
+import tempfile
+from pathlib import Path
+import storage
 import unittest
 from unittest.mock import patch, Mock
 
@@ -8,8 +11,19 @@ from app import app, jobs, transcribe, youtube_url
 
 class AppTests(unittest.TestCase):
     def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dbpatch = patch.object(storage, 'DB_PATH', Path(self.tmp.name)/'test.sqlite3')
+        self.dbpatch.start()
+        storage.initialize()
+        from app import auth_attempts
+        auth_attempts.clear()
         self.client = TestClient(app)
+        self.user = self.client.post('/api/auth/register', json={'email':'test@example.com','password':'long-password'}).json()
         jobs.clear()
+
+    def tearDown(self):
+        self.dbpatch.stop()
+        self.tmp.cleanup()
 
     def test_canonical_links(self):
         expected = 'https://www.youtube.com/watch?v=abcdefghijk'
@@ -41,7 +55,7 @@ class AppTests(unittest.TestCase):
 
     def test_pipeline_preserves_speakers_and_timestamps(self):
         from pathlib import Path
-        jobs['test'] = {'status':'queued'}
+        jobs['test'] = {'id':'test','status':'queued','owner':self.user['id']}
         def download(args, **kwargs):
             output = args[args.index('-o') + 1].replace('%(ext)s', 'm4a')
             Path(output).write_bytes(b'fake audio')
@@ -58,7 +72,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(jobs['test']['utterances'], [utterance])
 
     def test_download_failure_is_visible(self):
-        jobs['test'] = {'status':'queued'}
+        jobs['test'] = {'id':'test','status':'queued','owner':self.user['id']}
         with patch('app.subprocess.run', return_value=Mock(returncode=1)):
             transcribe('test', 'https://www.youtube.com/watch?v=abcdefghijk', 'test')
         self.assertEqual(jobs['test']['status'], 'error')
