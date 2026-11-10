@@ -29,3 +29,16 @@ Secrets and variables → Actions. The visual-test workflow runs on pull request
 and pushes to `main`. Without the secret (including fork PRs), local fixture checks
 and the Storybook build still run, but Chromatic upload is skipped. Changes are
 not automatically accepted. Storybook is separate from the production deployment.
+
+
+### Hosted YouTube downloads
+
+Set `YOINKU_API_KEY` in the local `.env` or Railway variables to retrieve audio
+through Yoinku instead of downloading directly from YouTube on Railway. AssemblyAI
+still performs transcription and speaker diarization. Without this setting, the
+app uses yt-dlp, which YouTube may block on cloud IPs.
+
+Yoinku’s documented free allowance is **five downloads per day per account**,
+shared by everyone using this app. It also limits requests per minute. No paid
+plan or automatic recharge is enabled by this integration. The provider receives
+the submitted YouTube URL, while AssemblyAI receives the downloaded audio.

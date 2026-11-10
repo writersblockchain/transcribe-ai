@@ -11,6 +11,8 @@ from app import app, jobs, transcribe, youtube_url
 
 class AppTests(unittest.TestCase):
     def setUp(self):
+        self.provider_env = patch.dict(os.environ, {'YOINKU_API_KEY': ''})
+        self.provider_env.start()
         self.tmp = tempfile.TemporaryDirectory()
         self.dbpatch = patch.object(storage, 'DB_PATH', Path(self.tmp.name)/'test.sqlite3')
         self.dbpatch.start()
@@ -22,6 +24,7 @@ class AppTests(unittest.TestCase):
         jobs.clear()
 
     def tearDown(self):
+        self.provider_env.stop()
         self.dbpatch.stop()
         self.tmp.cleanup()
 
@@ -70,6 +73,15 @@ class AppTests(unittest.TestCase):
         self.assertTrue(post.call_args.kwargs['json']['speaker_labels'])
         self.assertEqual(jobs['test']['status'], 'completed')
         self.assertEqual(jobs['test']['utterances'], [utterance])
+
+    def test_youtube_bot_check_is_explained_without_transcribing(self):
+        jobs['test'] = {'id':'test','status':'queued','owner':self.user['id']}
+        with patch('app.subprocess.run', return_value=Mock(returncode=1, stderr="Sign in to confirm you’re not a bot. --cookies secret-cookie")), patch('app.requests.post') as post:
+            transcribe('test', 'https://www.youtube.com/watch?v=abcdefghijk', 'test')
+        self.assertEqual(jobs['test']['status'], 'error')
+        self.assertIn('bot check', jobs['test']['error'])
+        self.assertNotIn('secret-cookie', jobs['test']['error'])
+        post.assert_not_called()
 
     def test_download_failure_is_visible(self):
         jobs['test'] = {'id':'test','status':'queued','owner':self.user['id']}

@@ -1,5 +1,6 @@
 """Local podcast transcription prototype. Run one Uvicorn worker."""
 import os
+import logging
 import re
 import shutil
 import subprocess
@@ -11,6 +12,7 @@ import uuid
 import sqlite3
 from contextlib import asynccontextmanager
 import storage
+from media import download_audio
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -154,24 +156,42 @@ def update(job_id, **values):
         storage.save(jobs[job_id], jobs[job_id]["owner"])
 
 
+def download_failure(stderr):
+    # Classify only; never expose raw downloader output or cookies to clients/logs.
+    detail = stderr.lower() if isinstance(stderr, str) else ""
+    if "not a bot" in detail or "confirm you’re" in detail or "confirm you're" in detail:
+        return "youtube_bot_check", (
+            "YouTube blocked the download from our hosting server with a bot check. "
+            "The video may still play normally on YouTube. Retrying here may not help; "
+            "you can try this link in the locally running app."
+        )
+    return "download_failed", "Could not download this video. Try a public, non-live video under 2 hours. YouTube may restrict automated downloads."
+
+
 def transcribe(job_id, url, key):
     try:
         update(job_id, status="downloading")
         with tempfile.TemporaryDirectory() as folder:
-            # Fixed canonical URL and argument array: never execute user shell input.
-            result = subprocess.run([
-                sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-playlist",
-                *(["--js-runtimes", "node"] if shutil.which("node") else []),
-                "--no-progress", "--max-filesize", "200M", "--socket-timeout", "30",
-                "--match-filter", "!is_live & duration <= 7200",
-                "-f", "bestaudio[ext=m4a]/bestaudio", "-o", f"{folder}/audio.%(ext)s", url,
-            ], capture_output=True, text=True, timeout=600)
-            files = [p for p in Path(folder).glob("audio.*") if p.suffix not in (".part", ".ytdl")]
-            if result.returncode or not files:
-                raise ValueError("Could not download this video. Try a public, non-live video under 2 hours. YouTube may restrict automated downloads.")
-            audio = files[0]
-            if audio.stat().st_size > 200 * 1024 * 1024:
-                raise ValueError("This video's audio exceeds the 200 MB limit.")
+            provider_key = os.getenv("YOINKU_API_KEY")
+            if provider_key:
+                audio = download_audio(url, provider_key, Path(folder) / "audio.m4a")
+            else:
+                # Fixed canonical URL and argument array: never execute user shell input.
+                result = subprocess.run([
+                    sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-playlist",
+                    *(["--js-runtimes", "node"] if shutil.which("node") else []),
+                    "--no-progress", "--max-filesize", "200M", "--socket-timeout", "30",
+                    "--match-filter", "!is_live & duration <= 7200",
+                    "-f", "bestaudio[ext=m4a]/bestaudio", "-o", f"{folder}/audio.%(ext)s", url,
+                ], capture_output=True, text=True, timeout=600)
+                files = [p for p in Path(folder).glob("audio.*") if p.suffix not in (".part", ".ytdl")]
+                if result.returncode or not files:
+                    category, message = download_failure(result.stderr)
+                    logging.getLogger(__name__).warning("YouTube download failed: job=%s category=%s", job_id, category)
+                    raise ValueError(message)
+                audio = files[0]
+                if audio.stat().st_size > 200 * 1024 * 1024:
+                    raise ValueError("This video's audio exceeds the 200 MB limit.")
             headers = {"authorization": key}
             update(job_id, status="uploading")
             with audio.open("rb") as stream:
