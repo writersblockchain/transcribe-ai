@@ -5,3 +5,15 @@ __pycache__/
 
 .venv-old/
 data/
+
+# Credentials, deployment state, and local databases
+.env.*
+!.env.example
+.vercel/
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.pem
+*.key
