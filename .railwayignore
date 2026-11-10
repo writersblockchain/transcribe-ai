@@ -15,3 +15,11 @@ tests
 
 **/.env*
 **/.vercel
+
+.storybook
+stories
+visual-tests
+storybook-static
+playwright-report
+test-results
+.github

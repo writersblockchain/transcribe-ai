@@ -17,3 +17,11 @@ data/
 *.db
 *.pem
 *.key
+
+# Visual testing
+node_modules/
+storybook-static/
+playwright-report/
+test-results/
+chromatic-diagnostics.json
+build-storybook.log

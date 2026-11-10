@@ -1,0 +1,31 @@
+name: Visual tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  chromatic:
+    runs-on: ubuntu-latest
+    env:
+      CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:visual-fixtures
+      - run: npm run build-storybook
+      - name: Run Chromatic
+        if: env.CHROMATIC_PROJECT_TOKEN != ''
+        run: npm run chromatic -- --storybook-build-dir=storybook-static
+      - name: Explain missing secret
+        if: env.CHROMATIC_PROJECT_TOKEN == ''
+        run: echo 'Chromatic upload skipped. Add the CHROMATIC_PROJECT_TOKEN repository secret. Fork pull requests do not receive secrets.'
