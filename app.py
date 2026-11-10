@@ -24,6 +24,10 @@ from pydantic import BaseModel, Field
 load_dotenv()
 @asynccontextmanager
 async def lifespan(app):
+    if os.getenv("RAILWAY_ENVIRONMENT_ID"):
+        mount = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+        if not mount or not storage.DB_PATH.resolve().is_relative_to(Path(mount).resolve()):
+            raise RuntimeError("Railway requires CADENCE_DB on an attached persistent volume.")
     storage.initialize()
     yield
 
@@ -33,7 +37,9 @@ app = FastAPI(lifespan=lifespan)
 async def same_origin(request: Request, call_next):
     if request.method in ("POST", "PATCH", "DELETE"):
         origin = request.headers.get("origin")
-        if request.headers.get("sec-fetch-site") == "cross-site" or (origin and origin != str(request.base_url).rstrip("/")):
+        allowed = {str(request.base_url).rstrip("/")}
+        allowed.update(value.strip().rstrip("/") for value in os.getenv("APP_ORIGINS", "").split(",") if value.strip())
+        if (origin and origin not in allowed) or (not origin and request.headers.get("sec-fetch-site") == "cross-site"):
             return JSONResponse({"detail":"Cross-origin requests are not allowed."}, status_code=403)
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
@@ -75,7 +81,7 @@ def check_attempts(request):
 
 def login_response(response, request, user):
     response.set_cookie("cadence_session", storage.session(user['id']), httponly=True,
-                        samesite="strict", secure=request.url.scheme == "https", max_age=604800)
+                        samesite="strict", secure=bool(os.getenv("RAILWAY_ENVIRONMENT_ID")) or request.url.scheme == "https", max_age=604800)
     return user
 
 
@@ -200,6 +206,13 @@ def transcribe(job_id, url, key):
         update(job_id, status="error", error=str(exc))
     except Exception:
         update(job_id, status="error", error="Processing failed or the connection timed out. Please try again.")
+
+
+@app.get("/api/health")
+def health():
+    with storage.database() as db:
+        db.execute("SELECT 1 FROM users LIMIT 1")
+    return {"status": "ok"}
 
 
 @app.get("/api/config")

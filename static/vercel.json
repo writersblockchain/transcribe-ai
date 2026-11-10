@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "",
+  "rewrites": [
+    {"source": "/api/:path*", "destination": "https://backend-production-64fc9491.up.railway.app/api/:path*"}
+  ]
+}

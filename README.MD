@@ -56,3 +56,48 @@ node --check static/app.js
 ```
 
 Tests cover URL restrictions, API errors, concurrency limits, the pipeline with mocked external services, authentication, cross-account isolation, session revocation/expiry, recovery ownership, and persistence across restart. A real YouTube-to-transcript run requires a configured API key and network access.
+
+
+## Railway backend deployment
+
+The Dockerfile includes Python, Node.js (for YouTube extraction), and ffmpeg.
+Deploy one service with **one replica and one Uvicorn worker**. Attach a Railway
+volume at `/data` and set `CADENCE_DB=/data/cadence.sqlite3`. Startup refuses to
+run on Railway without a persistent database mount. Configure
+`ASSEMBLYAI_API_KEY` as a Railway secret, never in the image or Git.
+`/api/health` checks database access. The service uses Railway's `PORT`.
+
+Before the first public deployment, migrate a consistent SQLite backup to the
+volume (never overwrite a running production database). Existing password hashes
+and conversation ownership carry over. Remove sessions from the migration copy
+so users sign in again. Keep the original local database intact. Configure volume
+backups in Railway. Do not scale this SQLite backend to multiple replicas.
+
+For the Vercel frontend, publish `static/` and proxy `/api/:path*` to the Railway
+HTTPS origin. Add the exact Vercel production origin to Railway's `APP_ORIGINS`;
+never use `*`. The browser then uses same-origin HTTP-only session cookies.
+Railway can also serve the existing frontend directly while Vercel is configured.
+Do not enable arbitrary preview origins. `.railwayignore` and `.dockerignore`
+exclude local credentials, databases, virtual environments, and backups.
+
+Deployments interrupt active transcription jobs; wait for them to finish before
+releasing changes. YouTube may restrict downloads from cloud IPs even when the
+same video works locally; verify a real video after deployment.
+
+
+### Deployed production services
+
+- Website: https://cadence-transcribe-tau.vercel.app
+- Backend: https://backend-production-64fc9491.up.railway.app
+- Railway project: `cadence-transcribe`, service: `backend`, volume mount: `/data`.
+- Vercel project: `cadence-transcribe` in `sean-2133s-projects`; deploy from `static/`.
+- The local account and two conversations were migrated with record-by-record
+  verification. Local and production databases are independent from now on.
+- Railway `APP_ORIGINS` permits the exact production website origin. Sessions
+  use secure HTTP-only cookies. Environment keys remain in Railway variables.
+
+Future releases: deploy the backend from the repository root with `railway up`,
+then the frontend with `vercel deploy --prod --cwd static`. CLI logins and project
+links are machine-local. Wait for active transcriptions before redeploying.
+Railway currently warns that `railway.json` must migrate to its new IaC format
+before December 1, 2026; use `railway config migrate` to plan that migration.

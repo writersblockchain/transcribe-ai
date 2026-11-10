@@ -1,0 +1,17 @@
+.git
+.venv
+.venv-old
+.env
+.env.*
+data
+__pycache__
+*.sqlite*
+*.db
+*.log
+.DS_Store
+.vercel
+node_modules
+tests
+
+**/.env*
+**/.vercel
